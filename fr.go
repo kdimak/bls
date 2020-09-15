@@ -37,6 +37,15 @@ var FRR, _ = FRReprFromString("1092033888706381446467550399231597617788887966458
 // FRR2 is R^2 % r.
 var FRR2, _ = FRReprFromString("3294906474794265442129797520630710739278575682199800681788903916070560242797", 10)
 
+func NewFr(o *FRRepr) *FR {
+	r := &FR{n: o}
+	if r.IsValid() {
+		return r
+	}
+
+	return nil
+}
+
 // FRReprToFR gets a pointer to a FR given a pointer
 // to an FRRepr
 func FRReprToFR(o *FRRepr) *FR {
