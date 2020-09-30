@@ -177,10 +177,10 @@ func (g *G2Affine) SerializeBytes() [192]byte {
 	yC0Bytes := g.y.c0.ToRepr().Bytes()
 	yC1Bytes := g.y.c1.ToRepr().Bytes()
 
-	copy(out[0:48], xC0Bytes[:])
-	copy(out[48:96], xC1Bytes[:])
-	copy(out[96:144], yC0Bytes[:])
-	copy(out[144:192], yC1Bytes[:])
+	copy(out[0:48], xC1Bytes[:])
+	copy(out[48:96], xC0Bytes[:])
+	copy(out[96:144], yC1Bytes[:])
+	copy(out[144:192], yC0Bytes[:])
 
 	return out
 }
