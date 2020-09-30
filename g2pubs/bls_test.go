@@ -1,13 +1,18 @@
 package g2pubs_test
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/blake2b"
 	"testing"
 
 	"github.com/phoreproject/bls"
 	"github.com/phoreproject/bls/g2pubs"
+
+	bls12381 "github.com/kilic/bls12-381"
 )
 
 type XORShift struct {
@@ -42,6 +47,364 @@ func SignVerify(loopCount int) error {
 		}
 	}
 	return nil
+}
+
+func TestMinePublicKeyParsing(t *testing.T) {
+	pkBase64 := "lOpN7uGZWivVIjs0325N/V0dAhoPomrgfXVpg7pZNdRWwFwJDVxoE7TvRyOx/Qr7GMtShNuS2Px/oScD+SMf08t8eAO78QRNErPzwNpfkP4ppcSTShStFDfFbsv9L9yb"
+	pkBytes, err := base64.RawStdEncoding.DecodeString(pkBase64)
+	require.NoError(t, err)
+	require.Len(t, pkBytes, 96)
+
+	var pkBytesArr [96]byte
+	copy(pkBytesArr[:], pkBytes[:96])
+
+	publicKey, err := g2pubs.DeserializePublicKey(pkBytesArr)
+	require.NoError(t, err)
+	require.NotNil(t, publicKey)
+}
+
+func parseFr(data []byte) *bls.FR {
+	var arr [32]byte
+	copy(arr[:], data)
+
+	return bls.FRReprToFR(bls.FRReprFromBytes(arr))
+}
+
+func TestMineSignatureParsing(t *testing.T) {
+	sigBase64 := "hPbLkeMZZ6KKzkjWoTVHeMeuLJfYWjmdAU1Vg5fZ/VZnIXxxeXBB+q0/EL8XQmWkOMMwEGA/D2dCb4MDuntKZpvHEHlvaFR6l1A4bYj0t2Jd6bYwGwCwirNbmSeIoEmJeRzJ1cSvsL+jxvLixdDPnw=="
+	sigBytes, err := base64.StdEncoding.DecodeString(sigBase64)
+	require.NoError(t, err)
+	require.Len(t, sigBytes, 112)
+
+	var sigBytesArr [48]byte
+	copy(sigBytesArr[:], sigBytes[:48])
+
+	signature, err := g2pubs.DeserializeSignature(sigBytesArr)
+	require.NoError(t, err)
+	require.NotNil(t, signature)
+
+	e := parseFr(sigBytes[48 : 48+32])
+	require.NotNil(t, e)
+
+	s := parseFr(sigBytes[48+32:])
+	require.NotNil(t, s)
+}
+
+func messageToFr(message []byte) *bls.FR {
+	h, _ := blake2b.New384(nil)
+	_, _ = h.Write(message)
+	okm := h.Sum(nil)
+
+	elm := parseFr(append(make([]byte, 8, 8), okm[:24]...))
+	elm.MulAssign(f2_192())
+	elm.AddAssign(parseFr(append(make([]byte, 8, 8), okm[24:]...)))
+
+	return elm
+}
+
+func f2_192() *bls.FR {
+	return bls.NewFr(&bls.FRRepr{
+		0x59476ebc41b4528f,
+		0xc5a30cb243fcc152,
+		0x2b34e63940ccbd72,
+		0x1e179025ca247088})
+}
+
+func TestVerifySignature(t *testing.T) {
+	pkBase64 := "lOpN7uGZWivVIjs0325N/V0dAhoPomrgfXVpg7pZNdRWwFwJDVxoE7TvRyOx/Qr7GMtShNuS2Px/oScD+SMf08t8eAO78QRNErPzwNpfkP4ppcSTShStFDfFbsv9L9yb"
+	pkBytes, err := base64.RawStdEncoding.DecodeString(pkBase64)
+	require.NoError(t, err)
+	require.Len(t, pkBytes, 96)
+
+	var pkBytesArr [96]byte
+	copy(pkBytesArr[:], pkBytes[:96])
+
+	publicKey, err := g2pubs.DeserializePublicKey(pkBytesArr)
+	require.NoError(t, err)
+	require.NotNil(t, publicKey)
+
+	sigBase64 := "hPbLkeMZZ6KKzkjWoTVHeMeuLJfYWjmdAU1Vg5fZ/VZnIXxxeXBB+q0/EL8XQmWkOMMwEGA/D2dCb4MDuntKZpvHEHlvaFR6l1A4bYj0t2Jd6bYwGwCwirNbmSeIoEmJeRzJ1cSvsL+jxvLixdDPnw=="
+	sigBytes, err := base64.StdEncoding.DecodeString(sigBase64)
+	require.NoError(t, err)
+	require.Len(t, sigBytes, 112)
+
+	var sigBytesArr [48]byte
+	copy(sigBytesArr[:], sigBytes[:48])
+
+	signature, err := g2pubs.DeserializeSignature(sigBytesArr)
+	require.NoError(t, err)
+	require.NotNil(t, signature)
+
+	messages := []string{"message1", "message2"}
+
+	messagesFr := make([]*bls.FR, len(messages))
+	for i := range messages {
+		messagesFr[i] = messageToFr([]byte(messages[i]))
+	}
+
+	e := parseFr(sigBytes[48 : 48+32])
+	require.NotNil(t, e)
+
+	s := parseFr(sigBytes[48+32:])
+	require.NotNil(t, s)
+
+	p1 := signature.GetPoint().ToAffine()
+	require.NotNil(t, p1)
+
+	q1 := bls.G2ProjectiveOne
+	q1 = Mul(q1, *e.ToRepr())
+	q1 = q1.Add(publicKey.GetPoint())
+
+	p2 := bls.NewG1Affine(
+		bls.NewFQ(bls.FQRepr{
+			2882873457617515126,
+			8090169798720875349,
+			3413154113899720733,
+			2409063739866755870,
+			4463753950411322760,
+			965108758790108796,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			3039742753099377729,
+			8681167061622442934,
+			16786687068344448111,
+			13428673864018845111,
+			12820269664220724619,
+			1175941883621080583,
+		}),
+	)
+
+	require.True(t, CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), bls.G2ProjectiveOne))
+
+	/*
+		{
+			priv, err := g2pubs.RandKey(NewXORShift(1))
+			require.NoError(t, err)
+
+			publicKey = g2pubs.PrivToPub(priv)
+
+			message1 := []byte("message1")
+			signature1 := g2pubs.Sign(message1, priv)
+			require.True(t, g2pubs.Verify(message1, publicKey, signature1))
+
+			message2 := []byte("message2")
+			signature2 := g2pubs.Sign(message2, priv)
+			require.True(t, g2pubs.Verify(message2, publicKey, signature2))
+
+			aggrSignature := g2pubs.AggregateSignatures([]*g2pubs.Signature{signature1, signature2})
+
+			validSignature := aggrSignature.VerifyAggregate([]*g2pubs.PublicKey{publicKey, publicKey}, [][]byte{
+				message1,
+				message2,
+			})
+			require.True(t, validSignature)
+		}
+
+	*/
+
+	// TARGET!
+	/*	validSignature := signature.VerifyAggregate([]*g2pubs.PublicKey{publicKey, publicKey}, [][]byte{
+			[]byte("message1"),
+			[]byte("message2"),
+		})
+		require.True(t, validSignature)
+	*/
+
+}
+
+// Mul performs a EC multiply operation on the point.
+func Mul(g *bls.G2Projective, b bls.FRRepr) *bls.G2Projective {
+	res := bls.G2ProjectiveZero.Copy()
+	for i := uint(0); i < uint(b.BitLen()); i++ {
+		o := b.Bit(b.BitLen() - i - 1)
+		res = res.Double()
+		if o {
+			res = res.Add(g)
+		}
+	}
+	return res
+}
+
+func TestPairingComparison(t *testing.T) {
+	/*	p1 := bls.NewG1Projective(
+		bls.NewFQ(bls.FQRepr{
+			16370429421516258006,
+			13370838727054594723,
+			1018707538954825462,
+			7944738526253740579,
+			4460657559868236937,
+			1144194875142844353,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			4473961400152561216,
+			238420868684456399,
+			10454741800591563713,
+			2462464036349354023,
+			6960609179594048309,
+			993702527266246817,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			8505329371266088957,
+			17002214543764226050,
+			6865905132761471162,
+			8632934651105793861,
+			6631298214892334189,
+			1582556514881692819,
+		}),
+	)*/
+	p1 := bls.NewG1Affine(
+		bls.NewFQ(bls.FQRepr{
+			16370429421516258006,
+			13370838727054594723,
+			1018707538954825462,
+			7944738526253740579,
+			4460657559868236937,
+			1144194875142844353,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			4473961400152561216,
+			238420868684456399,
+			10454741800591563713,
+			2462464036349354023,
+			6960609179594048309,
+			993702527266246817,
+		}),
+	)
+
+	q1 := bls.NewG2Projective(
+		bls.NewFQ2(
+			bls.NewFQ(bls.FQRepr{
+				14729264283605877758, 8052929671236952171, 482009507434465663, 5465354739862128410, 13923907204446376577, 1030491236563514074,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				13228470900547706793, 15805978330794979481, 510200209862916100, 5933868461179469133, 11420109164284838810, 121915148611333554,
+			}),
+		),
+		bls.NewFQ2(
+			bls.NewFQ(bls.FQRepr{
+				17434557008903410809, 18067717987661788755, 2620376523377660005, 12918713543142823080, 11482354517443152445, 659262416231390122,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				8140357614622982532, 11102576235294031195, 8872947921373673018, 8145858700205586671, 4039555067422454225, 600943540397339938,
+			}),
+		),
+		bls.NewFQ2(
+			bls.NewFQ(bls.FQRepr{
+				15135737048925088896, 11734189478919739727, 12327642962145943264, 13125512644385901322, 14329971368854893534, 386428027939231865,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				4160833650522955158, 2168245494824743763, 4965116188234435055, 8688697814555707053, 9765984219232172678, 570097477644937414,
+			}),
+		),
+	)
+
+	//p2 := bls.NewG1Projective(
+	//	bls.NewFQ(bls.FQRepr{
+	//		2882873457617515126,
+	//		8090169798720875349,
+	//		3413154113899720733,
+	//		2409063739866755870,
+	//		4463753950411322760,
+	//		965108758790108796,
+	//	}),
+	//	bls.NewFQ(bls.FQRepr{
+	//		3039742753099377729,
+	//		8681167061622442934,
+	//		16786687068344448111,
+	//		13428673864018845111,
+	//		12820269664220724619,
+	//		1175941883621080583,
+	//	}),
+	//	bls.FQOne,
+	//)
+
+	p2 := bls.NewG1Affine(
+		bls.NewFQ(bls.FQRepr{
+			2882873457617515126,
+			8090169798720875349,
+			3413154113899720733,
+			2409063739866755870,
+			4463753950411322760,
+			965108758790108796,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			3039742753099377729,
+			8681167061622442934,
+			16786687068344448111,
+			13428673864018845111,
+			12820269664220724619,
+			1175941883621080583,
+		}),
+	)
+	//p2.NegAssign()
+
+	q2 := bls.G2ProjectiveOne
+
+	// todo this does not work for some reason
+	//  but below it's shown that bls12-381 check passes
+	//require.True(t, bls.CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), q2))
+
+	engine := bls12381.NewEngine()
+
+	bytesG1 := p1.SerializeBytes()
+	a1, err := engine.G1.FromUncompressed(bytesG1[:])
+	require.NoError(t, err)
+	require.NotNil(t, a1)
+
+	bytesG2 := q1.ToAffine().SerializeBytes()
+	a2, err := engine.G2.FromUncompressed(bytesG2[:])
+	require.NoError(t, err)
+	require.NotNil(t, a2)
+
+	bytesG1 = p2.SerializeBytes()
+	b, err := engine.G1.FromUncompressed(bytesG1[:])
+	require.NoError(t, err)
+	require.NotNil(t, b)
+
+	bytesG2 = q2.ToAffine().SerializeBytes()
+	g2, err := engine.G2.FromUncompressed(bytesG2[:])
+	require.NoError(t, err)
+	require.NotNil(t, g2)
+
+	engine.AddPair(a1, a2)
+	engine.AddPair(b, g2)
+
+	require.True(t, engine.Check())
+
+	require.True(t, CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), q2))
+}
+
+func CompareTwoPairings(p1 *bls.G1Projective, q1 *bls.G2Projective, p2 *bls.G1Projective, q2 *bls.G2Projective) bool {
+	engine := bls12381.NewEngine()
+
+	bytesG1 := p1.ToAffine().SerializeBytes()
+	a1, err := engine.G1.FromUncompressed(bytesG1[:])
+	if err != nil {
+		panic(err)
+	}
+
+	bytesG2 := q1.ToAffine().SerializeBytes()
+	a2, err := engine.G2.FromUncompressed(bytesG2[:])
+	if err != nil {
+		panic(err)
+	}
+
+	bytesG1 = p2.ToAffine().SerializeBytes()
+	b, err := engine.G1.FromUncompressed(bytesG1[:])
+	if err != nil {
+		panic(err)
+	}
+
+	bytesG2 = q2.ToAffine().SerializeBytes()
+	g2, err := engine.G2.FromUncompressed(bytesG2[:])
+	if err != nil {
+		panic(err)
+	}
+
+	engine.AddPair(a1, a2)
+	engine.AddPair(b, g2)
+
+	return engine.Check()
 }
 
 func SignVerifyAggregateCommonMessage(loopCount int) error {
