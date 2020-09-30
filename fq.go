@@ -12,6 +12,10 @@ type FQ struct {
 	n FQRepr
 }
 
+func NewFQ(repr FQRepr) FQ {
+	return FQ{n: repr}
+}
+
 var bigZero = NewFQRepr(0)
 var bigOne = NewFQRepr(1)
 var bigTwo = NewFQRepr(2)
