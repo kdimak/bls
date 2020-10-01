@@ -154,25 +154,7 @@ func TestVerifySignature(t *testing.T) {
 	q1 := bls.G2ProjectiveOne
 	q1 = Mul(q1, *e.ToRepr())
 	q1 = q1.Add(publicKey.GetPoint())
-
-	p2 := bls.NewG1Affine(
-		bls.NewFQ(bls.FQRepr{
-			2882873457617515126,
-			8090169798720875349,
-			3413154113899720733,
-			2409063739866755870,
-			4463753950411322760,
-			965108758790108796,
-		}),
-		bls.NewFQ(bls.FQRepr{
-			3039742753099377729,
-			8681167061622442934,
-			16786687068344448111,
-			13428673864018845111,
-			12820269664220724619,
-			1175941883621080583,
-		}),
-	)
+	p2 := getB(signature, s, messagesFr, publicKey)
 
 	require.True(t, CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), bls.G2ProjectiveOne))
 
@@ -209,6 +191,121 @@ func TestVerifySignature(t *testing.T) {
 		})
 		require.True(t, validSignature)
 	*/
+
+}
+
+func getB(signature *g2pubs.Signature, s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
+	messagesCount := len(messages)
+
+	bases := make([]*bls.G1Projective, messagesCount+2)
+	scalars := make([]*bls.FR, messagesCount+2)
+
+	bases[0] = bls.G1AffineOne.ToProjective()
+	scalars[0] = bls.FRReprToFR(bls.NewFRRepr(1))
+
+	h0 := bls.NewG1Projective(
+		bls.NewFQ(bls.FQRepr{
+			905820833008503083,
+			9240945291016325509,
+			13366692626957067360,
+			360281987151155274,
+			6137270680351497632,
+			1729211518354811753,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			2749213550200633921,
+			16784341626942733112,
+			13730381368159730173,
+			3289815386341602076,
+			4302800671622952643,
+			1238425617088976591,
+		}),
+		bls.NewFQ(bls.FQRepr{
+			9009161859124271895,
+			4004601416421819145,
+			17666080535007456820,
+			1467025498923277398,
+			15998618073075245631,
+			1627581222097844331,
+		}),
+	)
+
+	h := []*bls.G1Projective{
+		bls.NewG1Projective(
+			bls.NewFQ(bls.FQRepr{
+				4150245251109287225,
+				707156057725155017,
+				16900717825099366311,
+				12675629723093916088,
+				9480270638649625771,
+				502877485977351004,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				8279180685506606809,
+				11940853259298226408,
+				4164447858867918111,
+				11708996824814300763,
+				11105584127232338683,
+				896037789838367131,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				7425696717269121546,
+				4282927492362726840,
+				10425440653650753325,
+				1015827297880759064,
+				2640461482636147839,
+				1597513890558393273,
+			}),
+		),
+
+		bls.NewG1Projective(
+			bls.NewFQ(bls.FQRepr{
+				13813948394491710507,
+				14181188069603016148,
+				2345248470830925316,
+				2415304211941801784,
+				16299299698882825826,
+				1635648609306267539,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				4714266184897274213,
+				6788620145314245533,
+				14010338663811988887,
+				6103709914817129006,
+				831276604445685817,
+				1483167979589309904,
+			}),
+			bls.NewFQ(bls.FQRepr{
+				9115142136108202173,
+				9434166221236620132,
+				3050725676461541412,
+				17028719110040579790,
+				428881233895015693,
+				631019407759630451,
+			}),
+		),
+	}
+
+	bases[1] = h0
+	scalars[1] = s
+
+	for i := 0; i < len(messages); i++ {
+		bases[i+2] = h[i]
+		scalars[i+2] = messages[i]
+	}
+
+	res := bls.G1ProjectiveZero
+
+	for i := 0; i < len(bases); i++ {
+		b := bases[i]
+		s := scalars[i].ToRepr()
+
+		g := b.MulFR(s)
+		res = res.Add(g)
+	}
+	res.NegAssign()
+
+	return res.ToAffine()
 
 }
 
