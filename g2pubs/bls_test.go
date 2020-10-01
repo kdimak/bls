@@ -2,17 +2,20 @@ package g2pubs_test
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/blake2b"
+	"hash"
 	"testing"
 
 	"github.com/phoreproject/bls"
 	"github.com/phoreproject/bls/g2pubs"
 
 	bls12381 "github.com/kilic/bls12-381"
+	//bls12381 "github.com/mikelodder7/bls12-381"
 )
 
 type XORShift struct {
@@ -154,7 +157,7 @@ func TestVerifySignature(t *testing.T) {
 	q1 := bls.G2ProjectiveOne
 	q1 = Mul(q1, *e.ToRepr())
 	q1 = q1.Add(publicKey.GetPoint())
-	p2 := getB(signature, s, messagesFr, publicKey)
+	p2 := getB(s, messagesFr, publicKey)
 
 	require.True(t, CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), bls.G2ProjectiveOne))
 
@@ -194,16 +197,34 @@ func TestVerifySignature(t *testing.T) {
 
 }
 
-func getB(signature *g2pubs.Signature, s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
-	messagesCount := len(messages)
+func calcData(key *g2pubs.PublicKey, messagesCount int) []byte {
+	keyBytes := key.GetPoint().ToAffine().SerializeBytes()
+	data := keyBytes[:]
+	fmt.Printf("uncompressed g2 point length: %d\n", len(data))
 
-	bases := make([]*bls.G1Projective, messagesCount+2)
-	scalars := make([]*bls.FR, messagesCount+2)
+	data = append(data, 0, 0, 0, 0, 0, 0)
 
-	bases[0] = bls.G1AffineOne.ToProjective()
-	scalars[0] = bls.FRReprToFR(bls.NewFRRepr(1))
+	mcBytes := uint32ToBytes(uint32(messagesCount))
 
-	h0 := bls.NewG1Projective(
+	data = append(data, mcBytes...)
+
+	return data
+}
+
+func uint32ToBytes(value uint32) []byte {
+	bytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(bytes, value)
+	return bytes
+}
+
+func hashToG1(data []byte) *bls.G1Projective {
+	dst := []byte("BLS12381G1_XMD:BLAKE2B_SSWU_RO_BBS+_SIGNATURES:1_0_0")
+	fmt.Printf("dst : %v\n", dst)
+
+	// todo implement using hashToCurve() after its outcome would match the one from libursa
+
+	// VALID (hardcoded)
+	return bls.NewG1Projective(
 		bls.NewFQ(bls.FQRepr{
 			905820833008503083,
 			9240945291016325509,
@@ -229,6 +250,21 @@ func getB(signature *g2pubs.Signature, s *bls.FR, messages []*bls.FR, key *g2pub
 			1627581222097844331,
 		}),
 	)
+}
+
+func getB(s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
+	messagesCount := len(messages)
+
+	bases := make([]*bls.G1Projective, messagesCount+2)
+	scalars := make([]*bls.FR, messagesCount+2)
+
+	bases[0] = bls.G1AffineOne.ToProjective()
+	scalars[0] = bls.FRReprToFR(bls.NewFRRepr(1))
+
+	data := calcData(key, messagesCount)
+	fmt.Printf("data=%v\n", data)
+
+	h0 := hashToG1(data)
 
 	h := []*bls.G1Projective{
 		bls.NewG1Projective(
@@ -469,6 +505,24 @@ func TestPairingComparison(t *testing.T) {
 	require.True(t, engine.Check())
 
 	require.True(t, CompareTwoPairings(p1.ToProjective(), q1, p2.ToProjective(), q2))
+}
+
+func TestG1_HashToCurve(t *testing.T) {
+	msg := []byte{20, 234, 77, 238, 225, 153, 90, 43, 213, 34, 59, 52, 223, 110, 77, 253, 93, 29, 2, 26, 15, 162, 106, 224, 125, 117, 105, 131, 186, 89, 53, 212, 86, 192, 92, 9, 13, 92, 104, 19, 180, 239, 71, 35, 177, 253, 10, 251, 24, 203, 82, 132, 219, 146, 216, 252, 127, 161, 39, 3, 249, 35, 31, 211, 203, 124, 120, 3, 187, 241, 4, 77, 18, 179, 243, 192, 218, 95, 144, 254, 41, 165, 196, 147, 74, 20, 173, 20, 55, 197, 110, 203, 253, 47, 220, 155, 6, 174, 230, 79, 195, 125, 6, 87, 200, 40, 28, 93, 79, 108, 178, 24, 59, 125, 153, 38, 15, 55, 247, 68, 150, 47, 201, 138, 154, 32, 205, 243, 0, 63, 142, 241, 71, 221, 139, 132, 170, 44, 165, 86, 131, 32, 168, 75, 14, 227, 3, 12, 148, 151, 213, 220, 80, 165, 132, 248, 10, 194, 63, 156, 161, 7, 210, 27, 97, 33, 148, 101, 104, 59, 213, 41, 11, 85, 184, 245, 4, 208, 52, 46, 182, 237, 212, 94, 199, 252, 169, 219, 129, 177, 92, 221, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+	domain := []byte("BLS12381G1_XMD:BLAKE2B_SSWU_RO_BBS+_SIGNATURES:1_0_0")
+
+	newBlake2b := func() hash.Hash {
+		h, _ := blake2b.New512(nil)
+		return h
+	}
+
+	g := bls12381.NewG1()
+	p0, err := g.HashToCurve(newBlake2b, msg, domain)
+	if err != nil {
+		t.Fatal("hash to point fails", err)
+	}
+
+	t.Logf("p0: %v", p0)
 }
 
 func CompareTwoPairings(p1 *bls.G1Projective, q1 *bls.G2Projective, p2 *bls.G1Projective, q2 *bls.G2Projective) bool {

@@ -2,6 +2,8 @@ github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/kilic/bls12-381 v0.0.0-20200820230200-6b2c19996391 h1:51kHw7l/dUDdOdW06AlUGT5jnpj6nqQSILebcsikSjA=
 github.com/kilic/bls12-381 v0.0.0-20200820230200-6b2c19996391/go.mod h1:XXfR6YFCRSrkEXbNlIyDsgXVNJWVUV30m/ebkVy9n6s=
+github.com/mikelodder7/bls12-381 v0.0.0-20200708145258-ee2bda426526 h1:RZEAtibpJVsGkS1kOsL6En/4Hx5542PjbImmdSQSDf0=
+github.com/mikelodder7/bls12-381 v0.0.0-20200708145258-ee2bda426526/go.mod h1:aaUkv0DevwjI+18IKgH0FsQkd6MgXxUNdVZuU3rueB8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
