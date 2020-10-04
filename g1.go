@@ -172,12 +172,9 @@ func (g *G1Affine) SetRawBytes(uncompressed [96]byte) {
 	var yBytes [48]byte
 	copy(xBytes[:], uncompressed[0:48])
 	copy(yBytes[:], uncompressed[48:96])
-	g.x = FQ{
-		n: FQReprFromBytes(xBytes),
-	}
-	g.y = FQ{
-		n: FQReprFromBytes(yBytes),
-	}
+
+	g.x = FQReprToFQ(FQReprFromBytes(xBytes))
+	g.y = FQReprToFQ(FQReprFromBytes(yBytes))
 }
 
 // DecompressG1 decompresses the big int into an affine point and checks
