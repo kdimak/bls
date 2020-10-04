@@ -138,18 +138,17 @@ func TestVerifySignature(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, signature)
 
+	e := parseFr(sigBytes[48 : 48+32])
+	require.NotNil(t, e)
+
+	s := parseFr(sigBytes[48+32:])
+	require.NotNil(t, s)
 	messages := []string{"message1", "message2"}
 
 	messagesFr := make([]*bls.FR, len(messages))
 	for i := range messages {
 		messagesFr[i] = messageToFr([]byte(messages[i]))
 	}
-
-	e := parseFr(sigBytes[48 : 48+32])
-	require.NotNil(t, e)
-
-	s := parseFr(sigBytes[48+32:])
-	require.NotNil(t, s)
 
 	p1 := signature.GetPoint().ToAffine()
 	require.NotNil(t, p1)
@@ -217,39 +216,29 @@ func uint32ToBytes(value uint32) []byte {
 	return bytes
 }
 
-func hashToG1(data []byte) *bls.G1Projective {
+func hashToG1(data []byte) (*bls.G1Projective, error) {
 	dst := []byte("BLS12381G1_XMD:BLAKE2B_SSWU_RO_BBS+_SIGNATURES:1_0_0")
 	fmt.Printf("dst : %v\n", dst)
 
-	// todo implement using hashToCurve() after its outcome would match the one from libursa
+	newBlake2b := func() hash.Hash {
+		h, _ := blake2b.New512(nil)
+		return h
+	}
 
-	// VALID (hardcoded)
-	return bls.NewG1Projective(
-		bls.NewFQ(bls.FQRepr{
-			905820833008503083,
-			9240945291016325509,
-			13366692626957067360,
-			360281987151155274,
-			6137270680351497632,
-			1729211518354811753,
-		}),
-		bls.NewFQ(bls.FQRepr{
-			2749213550200633921,
-			16784341626942733112,
-			13730381368159730173,
-			3289815386341602076,
-			4302800671622952643,
-			1238425617088976591,
-		}),
-		bls.NewFQ(bls.FQRepr{
-			9009161859124271895,
-			4004601416421819145,
-			17666080535007456820,
-			1467025498923277398,
-			15998618073075245631,
-			1627581222097844331,
-		}),
-	)
+	g1 := bls12381.NewG1()
+	p0, err := g1.HashToCurve(newBlake2b, data, dst)
+	if err != nil {
+		return nil, fmt.Errorf("hash to curve: %w", err)
+	}
+
+	p0Bytes := g1.ToUncompressed(p0)
+	var p0BytesArr [96]byte
+	copy(p0BytesArr[:], p0Bytes)
+
+	var p0Bls bls.G1Affine
+	p0Bls.SetRawBytes(p0BytesArr)
+
+	return p0Bls.ToProjective(), nil
 }
 
 func getB(s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
@@ -261,65 +250,33 @@ func getB(s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
 	bases[0] = bls.G1AffineOne.ToProjective()
 	scalars[0] = bls.FRReprToFR(bls.NewFRRepr(1))
 
+	offset := 192 + 1
+
 	data := calcData(key, messagesCount)
 	fmt.Printf("data=%v\n", data)
 
-	h0 := hashToG1(data)
+	h0, err := hashToG1(data)
+	if err != nil {
+		panic(err)
+	}
 
-	h := []*bls.G1Projective{
-		bls.NewG1Projective(
-			bls.NewFQ(bls.FQRepr{
-				4150245251109287225,
-				707156057725155017,
-				16900717825099366311,
-				12675629723093916088,
-				9480270638649625771,
-				502877485977351004,
-			}),
-			bls.NewFQ(bls.FQRepr{
-				8279180685506606809,
-				11940853259298226408,
-				4164447858867918111,
-				11708996824814300763,
-				11105584127232338683,
-				896037789838367131,
-			}),
-			bls.NewFQ(bls.FQRepr{
-				7425696717269121546,
-				4282927492362726840,
-				10425440653650753325,
-				1015827297880759064,
-				2640461482636147839,
-				1597513890558393273,
-			}),
-		),
+	h := make([]*bls.G1Projective, messagesCount)
+	for i := 1; i <= messagesCount; i++ {
+		dataCopy := make([]byte, len(data))
+		copy(dataCopy, data)
 
-		bls.NewG1Projective(
-			bls.NewFQ(bls.FQRepr{
-				13813948394491710507,
-				14181188069603016148,
-				2345248470830925316,
-				2415304211941801784,
-				16299299698882825826,
-				1635648609306267539,
-			}),
-			bls.NewFQ(bls.FQRepr{
-				4714266184897274213,
-				6788620145314245533,
-				14010338663811988887,
-				6103709914817129006,
-				831276604445685817,
-				1483167979589309904,
-			}),
-			bls.NewFQ(bls.FQRepr{
-				9115142136108202173,
-				9434166221236620132,
-				3050725676461541412,
-				17028719110040579790,
-				428881233895015693,
-				631019407759630451,
-			}),
-		),
+		iBytes := uint32ToBytes(uint32(i))
+
+		for j := 0; j < len(iBytes); j++ {
+			dataCopy[j+offset] = iBytes[j]
+		}
+
+		fmt.Printf("i = %d, dataCopy = %v\n", i, dataCopy)
+
+		h[i-1], err = hashToG1(dataCopy)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	bases[1] = h0
@@ -342,7 +299,6 @@ func getB(s *bls.FR, messages []*bls.FR, key *g2pubs.PublicKey) *bls.G1Affine {
 	res.NegAssign()
 
 	return res.ToAffine()
-
 }
 
 // Mul performs a EC multiply operation on the point.
@@ -516,11 +472,18 @@ func TestG1_HashToCurve(t *testing.T) {
 		return h
 	}
 
-	g := bls12381.NewG1()
-	p0, err := g.HashToCurve(newBlake2b, msg, domain)
+	g1 := bls12381.NewG1()
+	p0, err := g1.HashToCurve(newBlake2b, msg, domain)
 	if err != nil {
 		t.Fatal("hash to point fails", err)
 	}
+
+	p0Bytes := g1.ToUncompressed(p0)
+	var p0BytesArr [96]byte
+	copy(p0BytesArr[:], p0Bytes)
+
+	p0Bls := new(bls.G1Affine)
+	p0Bls.SetRawBytes(p0BytesArr)
 
 	t.Logf("p0: %v", p0)
 }
